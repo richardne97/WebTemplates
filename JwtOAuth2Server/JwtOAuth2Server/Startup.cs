@@ -31,13 +31,10 @@ namespace JwtOAuth2Server
                     .Where(t => typeof(IController).IsAssignableFrom(t)
                     || typeof(IHttpController).IsAssignableFrom(t)));
 
-            var resolver = new DefaultDependencyResolver(services.BuildServiceProvider());
+            DefaultDependencyResolver resolver = new DefaultDependencyResolver(services.BuildServiceProvider());
             
-            //For MVC
+            //For MVC injection
             DependencyResolver.SetResolver(resolver);
-
-            //For Web API
-            GlobalConfiguration.Configuration.DependencyResolver = resolver; //For Web API
 
             ConfigureAuth(app, iv);
 
@@ -48,6 +45,10 @@ namespace JwtOAuth2Server
             config.SuppressDefaultHostAuthentication();
 
             config.Filters.Add(new HostAuthenticationFilter(OAuthDefaults.AuthenticationType));
+
+            //For Web API injection
+            config.DependencyResolver = resolver; 
+
             app.UseWebApi(config);
         }
     }

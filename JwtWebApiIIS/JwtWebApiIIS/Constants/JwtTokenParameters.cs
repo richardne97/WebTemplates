@@ -4,7 +4,7 @@ using System.Linq;
 using System.Web;
 using Microsoft.IdentityModel.Tokens;
 
-namespace JwtOAuth2Server.Constants
+namespace  JwtWebApiIIS
 {
     public static class JwtTokenParameters
     {

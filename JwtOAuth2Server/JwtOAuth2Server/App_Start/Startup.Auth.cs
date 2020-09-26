@@ -53,6 +53,9 @@ namespace JwtOAuth2Server
 
                 #region Token generation settings
                 AccessTokenExpireTimeSpan = JwtTokenParameters.TokenExpireTime,
+
+                //The JwtFormat class in Microsoft.Owin.Security.Jwt is not work here. It does not impletement public string Protect(AuthenticationTicket data).
+                //It can not convert AuthenticationTicket into Jwt. 
                 AccessTokenFormat = new JwtFormat(JwtTokenParameters.Issuer, JwtTokenParameters.Audience, JwtTokenParameters.SecurityKey),
                 #endregion
 
@@ -79,16 +82,6 @@ namespace JwtOAuth2Server
                     OnReceive = ReceiveRefreshToken,
                 }
             });
-
-            /*
-            // Enable the application to use bearer tokens to authenticate users
-            app.UseOAuthBearerAuthentication(new OAuthBearerAuthenticationOptions()
-            {
-                AccessTokenFormat = _jwtFormat
-            });
-
-            app.UseOAuthBearerTokens(oaso);
-            */
         }
 
         #region Handle Life cycle of Authorization Server
