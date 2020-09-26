@@ -12,17 +12,20 @@ using System.Security.Claims;
 using System.Security.Principal;
 using System.Collections.Concurrent;
 using JwtOAuth2Server.IdentityValidator;
+using JwtOAuth2Server.Constants;
 
 namespace JwtOAuth2Server
 {
     public partial class Startup
     {
-        private string _jwtIssuer = Properties.Settings.Default.JwtIssuer;
-        private string _jwtAudience = Properties.Settings.Default.JwtAudience;
-        
         private readonly ConcurrentDictionary<string, string> _authenticationCodes = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private IIdentityValidator _identityValidator = null;
 
+        /// <summary>
+        /// Setup OAuth2 Server
+        /// </summary>
+        /// <param name="app"></param>
+        /// <param name="identityValidator">Identity Validator</param>
         public void ConfigureAuth(IAppBuilder app, IIdentityValidator identityValidator)
         {
             _identityValidator = identityValidator;
@@ -33,22 +36,26 @@ namespace JwtOAuth2Server
             {
                 AuthenticationType = "Application",
                 AuthenticationMode = Microsoft.Owin.Security.AuthenticationMode.Passive,
-                CookieName = CookieAuthenticationDefaults.CookiePrefix + "Application",
+                CookieName = $"{CookieAuthenticationDefaults.CookiePrefix}Application",
                 ExpireTimeSpan = TimeSpan.FromMinutes(5),
                 LoginPath = new PathString(Paths.Login),
                 LogoutPath = new PathString(Paths.Logout),
             });
             app.SetDefaultSignInAsAuthenticationType("Application");
 
-            // Setup Authorization Server
+            // Setup OAuth2 Authorization Server 
             app.UseOAuthAuthorizationServer(new OAuthAuthorizationServerOptions
             {
                 AuthorizeEndpointPath = new PathString(Paths.Authorize),
                 TokenEndpointPath = new PathString(Paths.Token),
                 ApplicationCanDisplayErrors = true,
-#if DEBUG
                 AllowInsecureHttp = true,
-#endif
+
+                #region Token generation settings
+                AccessTokenExpireTimeSpan = JwtTokenParameters.TokenExpireTime,
+                AccessTokenFormat = new JwtFormat(JwtTokenParameters.Issuer, JwtTokenParameters.Audience, JwtTokenParameters.SecurityKey),
+                #endregion
+
                 // Authorization server provider which controls the lifecycle of Authorization Server
                 Provider = new OAuthAuthorizationServerProvider
                 {
@@ -57,9 +64,6 @@ namespace JwtOAuth2Server
                     OnGrantResourceOwnerCredentials = GrantResourceOwnerCredentials,
                     OnGrantClientCredentials = GrantClientCredetails
                 },
-
-                AccessTokenExpireTimeSpan = TimeSpan.FromMinutes(30),
-                AccessTokenFormat = new JwtFormat(_jwtIssuer, _jwtAudience, Properties.Settings.Default.SecurityKey),
 
                 // Authorization code provider which creates and receives the authorization code.
                 AuthorizationCodeProvider = new AuthenticationTokenProvider
@@ -75,7 +79,19 @@ namespace JwtOAuth2Server
                     OnReceive = ReceiveRefreshToken,
                 }
             });
+
+            /*
+            // Enable the application to use bearer tokens to authenticate users
+            app.UseOAuthBearerAuthentication(new OAuthBearerAuthenticationOptions()
+            {
+                AccessTokenFormat = _jwtFormat
+            });
+
+            app.UseOAuthBearerTokens(oaso);
+            */
         }
+
+        #region Handle Life cycle of Authorization Server
 
         private Task ValidateClientRedirectUri(OAuthValidateClientRedirectUriContext context)
         {
@@ -96,8 +112,7 @@ namespace JwtOAuth2Server
 
         private Task ValidateClientAuthentication(OAuthValidateClientAuthenticationContext context)
         {
-            string clientId;
-            string clientSecret;
+            string clientId, clientSecret;
             if (context.TryGetBasicCredentials(out clientId, out clientSecret) || context.TryGetFormCredentials(out clientId, out clientSecret))
             {
                 if (_identityValidator.VerifyClientIdAndSecretPair(clientId, clientSecret)) 
@@ -114,7 +129,7 @@ namespace JwtOAuth2Server
 
         private Task GrantResourceOwnerCredentials(OAuthGrantResourceOwnerCredentialsContext context)
         {
-            var identity = new ClaimsIdentity(new GenericIdentity(
+            ClaimsIdentity identity = new ClaimsIdentity(new GenericIdentity(
                context.UserName, OAuthDefaults.AuthenticationType),
                context.Scope.Select(x => new Claim("urn:oauth:scope", x)));
 
@@ -130,7 +145,7 @@ namespace JwtOAuth2Server
 
             if (userName != null)
             {
-                var identity = new ClaimsIdentity(new[] { new Claim(ClaimsIdentity.DefaultNameClaimType, userName) }, OAuthDefaults.AuthenticationType);
+                ClaimsIdentity identity = new ClaimsIdentity(new[] { new Claim(ClaimsIdentity.DefaultNameClaimType, userName) }, OAuthDefaults.AuthenticationType);
 
                 //Get roles from Database by given userName
                 List<string>roles = _identityValidator.GetRoles(userName);
@@ -150,6 +165,10 @@ namespace JwtOAuth2Server
             return Task.FromResult(0);
         }
 
+        #endregion
+
+        #region Handle Authentication Code
+
         private void CreateAuthenticationCode(AuthenticationTokenCreateContext context)
         {
             context.SetToken(Guid.NewGuid().ToString("n") + Guid.NewGuid().ToString("n"));
@@ -165,6 +184,10 @@ namespace JwtOAuth2Server
             }
         }
 
+        #endregion
+
+        #region Handle Refresh Token
+
         private void CreateRefreshToken(AuthenticationTokenCreateContext context)
         {
             context.SetToken(context.SerializeTicket());
@@ -174,5 +197,7 @@ namespace JwtOAuth2Server
         {
             context.DeserializeTicket(context.Token);
         }
+
+        #endregion
     }
 }

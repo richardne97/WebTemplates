@@ -4,20 +4,51 @@ using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Logging;
+using System.Linq;
+using System.Security.Claims;
 
 namespace JwtOAuth2Server
 {
     public class JwtFormat : ISecureDataFormat<AuthenticationTicket>
     {
-        private readonly string _issuer = string.Empty;
-        private string _audience = null;
-        private string _securityKey = null;
-
+        private readonly string _issuer = String.Empty;
+        private readonly string _audience = null;
+        private readonly TokenValidationParameters _tokenValidationParameters;
+        private readonly SymmetricSecurityKey _securityKey;
+        private readonly SigningCredentials _signingCredentials;
+        private readonly JwtSecurityTokenHandler _handler = new JwtSecurityTokenHandler();
+        
+        /// <summary>
+        /// Constructor
+        /// </summary>
+        /// <param name="issuer">Issuer of JWT</param>
+        /// <param name="audience">Audience of JWT</param>
+        /// <param name="securityKey">Security of JWT</param>
         public JwtFormat(string issuer, string audience, string securityKey)
         {
             _issuer = issuer;
             _audience = audience;
-            _securityKey = securityKey;
+
+            //Symmetric security key
+            _securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(securityKey));
+
+            //Assign SecurityAlgorithm
+            _signingCredentials = new SigningCredentials(_securityKey, SecurityAlgorithms.HmacSha256Signature);
+
+            IdentityModelEventSource.ShowPII = true;
+
+            _tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidAudience = _audience,
+                ValidIssuer = _issuer,
+                IssuerSigningKey = _securityKey,
+                ValidateLifetime = true,
+                ValidateAudience = true,
+                ValidateIssuer = true,
+                RequireSignedTokens = true,
+                RequireExpirationTime = true,
+                ValidateIssuerSigningKey = true
+            };
         }
 
         public string Protect(AuthenticationTicket data)
@@ -27,44 +58,44 @@ namespace JwtOAuth2Server
                 throw new ArgumentNullException("data");
             }
 
-            //使用對稱式加密
-            SymmetricSecurityKey securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_securityKey));
-            //Assign SecurityAlgorithm
-            SigningCredentials signingCredentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256Signature);
-
             DateTimeOffset issued = data.Properties.IssuedUtc ?? DateTimeOffset.Now;
             DateTimeOffset expires = data.Properties.ExpiresUtc ?? DateTimeOffset.Now.AddMinutes(30);
 
-            IdentityModelEventSource.ShowPII = true;
-
             SecurityTokenDescriptor securityTokenDescriptor = new SecurityTokenDescriptor()
             {
-                ///發行者，通常為公司名稱，公司網址
+                ///Issuer, usually is domain name or company name
                 Issuer = _issuer,
-                ///聽眾(Token接收者)，接收者必須與此同名
+                ///Audience, the web api domain name or resouce name
                 Audience = _audience,
-                ///發行日期
+                ///JWT issue date
                 IssuedAt = issued.UtcDateTime,
-                ///失效日期
+                ///JWT expire date
                 Expires = expires.UtcDateTime,
-                ///在此日期前，Token尚未生效
+                ///The JWT is not valid before the date
                 NotBefore = issued.UtcDateTime,
-                ///使用者自訂主題，例如使用者名稱，角色等
+                ///User defined subject
                 Subject = data.Identity,
-                ///加密金鑰
-                SigningCredentials = signingCredentials,
+                ///JWT key
+                SigningCredentials = _signingCredentials,
             };
 
-            var handler = new JwtSecurityTokenHandler();
-
-            ///建立Token
-            SecurityToken token = handler.CreateToken(securityTokenDescriptor);
-            return handler.WriteToken(token);
+            ///Create and return token
+            return _handler.WriteToken(_handler.CreateToken(securityTokenDescriptor));
         }
 
         public AuthenticationTicket Unprotect(string protectedText)
         {
-            throw new NotImplementedException();
+            try
+            {
+                JwtSecurityToken jwtSecurityToken = _handler.ReadJwtToken(protectedText);
+                ClaimsPrincipal principal = _handler.ValidateToken(jwtSecurityToken.RawData, _tokenValidationParameters, out SecurityToken token);
+                return new AuthenticationTicket(principal.Identities.First(), new AuthenticationProperties());
+            }
+            catch
+            {
+                //Decode fail, invalid token
+                return null;
+            }
         }
     }
 }
