@@ -1,4 +1,4 @@
-# WebTempletes
+# WebTemplates
 In the repositories, there are two visual studio sloutions.
 
 **JwtOAuth2Server**
